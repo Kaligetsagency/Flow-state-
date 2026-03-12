@@ -1,0 +1,613 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Aura Flow - State Inducer</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            background-color: #050505;
+            overflow: hidden;
+            touch-action: none; /* Prevent scroll on touch */
+            user-select: none;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        canvas {
+            display: block;
+        }
+        /* Subtle pulse animation for the start button */
+        @keyframes pulse-glow {
+            0%, 100% { box-shadow: 0 0 15px 2px rgba(6, 182, 212, 0.4); }
+            50% { box-shadow: 0 0 30px 5px rgba(6, 182, 212, 0.8); }
+        }
+        .btn-glow {
+            animation: pulse-glow 3s infinite;
+        }
+    </style>
+</head>
+<body class="text-white">
+
+    <!-- Game Canvas -->
+    <canvas id="gameCanvas" class="absolute inset-0 w-full h-full z-0"></canvas>
+
+    <!-- UI Layer -->
+    <div id="uiLayer" class="absolute inset-0 z-10 flex flex-col items-center justify-center bg-black/80 backdrop-blur-sm transition-opacity duration-700">
+        <h1 class="text-6xl font-light tracking-[0.3em] mb-2 text-cyan-400 drop-shadow-[0_0_15px_rgba(6,182,212,0.8)]">FLOW</h1>
+        <p class="text-gray-400 mb-8 max-w-md text-center text-sm tracking-wider px-4">
+            Match the incoming nodes as they reach the center.<br><br>
+            <span class="text-cyan-300">Desktop:</span> Arrow Keys or W A S D<br>
+            <span class="text-cyan-300">Mobile:</span> Swipe Up, Down, Left, or Right
+        </p>
+        <button id="startBtn" class="px-10 py-3 rounded-full border border-cyan-500 text-cyan-400 tracking-widest uppercase hover:bg-cyan-950 transition-colors duration-300 btn-glow focus:outline-none">
+            Enter State
+        </button>
+        <p class="text-gray-600 mt-8 text-xs max-w-sm text-center">
+            *Audio is procedurally generated using binaural frequencies to entrain focus. Please wear headphones for the best experience.*
+        </p>
+    </div>
+
+    <!-- Pause/Lost Focus Overlay -->
+    <div id="pauseLayer" class="absolute inset-0 z-20 hidden flex-col items-center justify-center bg-black/90 backdrop-blur-md">
+        <h2 class="text-3xl font-light tracking-[0.2em] text-purple-400 mb-4">FOCUS LOST</h2>
+        <p class="text-gray-400 mb-6">Click or tap anywhere to resume.</p>
+    </div>
+
+    <script>
+        /**
+         * AUDIO ENGINE (Procedural Audio & Binaural Beats)
+         * Creates a harmonic environment that scales with the player's flow state.
+         */
+        class AudioEngine {
+            constructor() {
+                this.ctx = null;
+                this.droneOsc1 = null;
+                this.droneOsc2 = null;
+                this.droneGain = null;
+                
+                // Pentatonic scale frequencies for harmonious feedback (C4, D4, E4, G4, A4, C5)
+                this.scale = [261.63, 293.66, 329.63, 392.00, 440.00, 523.25];
+            }
+
+            init() {
+                const AudioContext = window.AudioContext || window.webkitAudioContext;
+                this.ctx = new AudioContext();
+
+                // Master Gain
+                this.masterGain = this.ctx.createGain();
+                this.masterGain.gain.value = 0.6;
+                this.masterGain.connect(this.ctx.destination);
+
+                // Setup background drone (Binaural Beats for Theta/Alpha waves - ~6Hz difference)
+                // Base frequency 136.1 Hz (Om frequency)
+                this.droneOsc1 = this.ctx.createOscillator();
+                this.droneOsc2 = this.ctx.createOscillator();
+                this.droneGain = this.ctx.createGain();
+
+                this.droneOsc1.type = 'sine';
+                this.droneOsc2.type = 'sine';
+                this.droneOsc1.frequency.value = 136.1;
+                this.droneOsc2.frequency.value = 142.1; // 6Hz beat frequency
+
+                // Stereo panning for binaural effect
+                const panLeft = this.ctx.createStereoPanner ? this.ctx.createStereoPanner() : this.ctx.createGain();
+                const panRight = this.ctx.createStereoPanner ? this.ctx.createStereoPanner() : this.ctx.createGain();
+                if (panLeft.pan) { panLeft.pan.value = -1; panRight.pan.value = 1; }
+
+                this.droneOsc1.connect(panLeft);
+                this.droneOsc2.connect(panRight);
+                panLeft.connect(this.droneGain);
+                panRight.connect(this.droneGain);
+                this.droneGain.connect(this.masterGain);
+
+                this.droneGain.gain.value = 0; // Start silent
+                this.droneOsc1.start();
+                this.droneOsc2.start();
+                
+                // Fade in drone
+                this.droneGain.gain.setTargetAtTime(0.15, this.ctx.currentTime, 2);
+            }
+
+            playHitSound(flowMultiplier) {
+                if (!this.ctx) return;
+
+                const osc = this.ctx.createOscillator();
+                const gain = this.ctx.createGain();
+                
+                // Pick a note from the pentatonic scale based on flow level
+                const noteIndex = Math.min(Math.floor(flowMultiplier * 2), this.scale.length - 1);
+                osc.frequency.value = this.scale[noteIndex];
+                
+                // Sound design: slight sine/triangle mix for a soft, glassy pluck
+                osc.type = 'sine';
+
+                osc.connect(gain);
+                gain.connect(this.masterGain);
+
+                // Envelope: quick attack, smooth decay
+                gain.gain.setValueAtTime(0, this.ctx.currentTime);
+                gain.gain.linearRampToValueAtTime(0.3, this.ctx.currentTime + 0.02);
+                gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.8);
+
+                osc.start();
+                osc.stop(this.ctx.currentTime + 1);
+            }
+
+            playMissSound() {
+                if (!this.ctx) return;
+                
+                const osc = this.ctx.createOscillator();
+                const gain = this.ctx.createGain();
+                
+                osc.type = 'triangle';
+                osc.frequency.setValueAtTime(150, this.ctx.currentTime);
+                osc.frequency.exponentialRampToValueAtTime(40, this.ctx.currentTime + 0.3); // Pitch drop
+                
+                osc.connect(gain);
+                gain.connect(this.masterGain);
+
+                gain.gain.setValueAtTime(0.2, this.ctx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.3);
+
+                osc.start();
+                osc.stop(this.ctx.currentTime + 0.4);
+            }
+
+            updateDrone(flowMultiplier) {
+                if (!this.ctx) return;
+                // Increase drone volume and add slight frequency modulation as flow increases
+                const targetVolume = 0.15 + (flowMultiplier * 0.1);
+                this.droneGain.gain.setTargetAtTime(targetVolume, this.ctx.currentTime, 0.5);
+                this.droneOsc2.frequency.setTargetAtTime(136.1 + 6 + (flowMultiplier * 2), this.ctx.currentTime, 1);
+            }
+            
+            suspend() { if(this.ctx) this.ctx.suspend(); }
+            resume() { if(this.ctx) this.ctx.resume(); }
+        }
+
+        /**
+         * GAME ENGINE & LOGIC
+         */
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d', { alpha: false }); // Optimize for no transparency on base layer
+        
+        let width, height, centerX, centerY;
+        let isPlaying = false;
+        let isPaused = false;
+        let animationId;
+
+        // Colors
+        const COLORS = {
+            bg: '#050505',
+            center: '#06b6d4', // Cyan
+            node: '#a855f7',   // Purple
+            hit: '#22d3ee',
+            miss: '#ef4444'    // Red
+        };
+
+        // Game State (The "Flow" metrics)
+        let flowScore = 0;          // Continuous score
+        let flowMultiplier = 0;     // 0.0 to 1.0, dictates visuals and audio
+        let consecutiveHits = 0;
+        
+        // Dynamic Difficulty Adjustment (DDA) Variables
+        let baseSpeed = 0;
+        let currentSpeed = 0;
+        let spawnInterval = 0;
+        let lastSpawnTime = 0;
+        let hitZoneRadius = 0;
+
+        // Entities
+        let nodes = [];
+        let particles = [];
+        let visualRings = [];
+
+        // Audio instance
+        const audio = new AudioEngine();
+
+        // Directions: 0: Up, 1: Right, 2: Down, 3: Left
+        const DIRS = [
+            { x: 0, y: -1 }, // Up
+            { x: 1, y: 0 },  // Right
+            { x: 0, y: 1 },  // Down
+            { x: -1, y: 0 }  // Left
+        ];
+
+        function resize() {
+            width = canvas.width = window.innerWidth;
+            height = canvas.height = window.innerHeight;
+            centerX = width / 2;
+            centerY = height / 2;
+            
+            // Scale logic based on screen size
+            hitZoneRadius = Math.min(width, height) * 0.1;
+            baseSpeed = Math.min(width, height) * 0.003;
+            if(isPlaying) currentSpeed = baseSpeed + (flowMultiplier * baseSpeed * 1.5);
+        }
+        window.addEventListener('resize', resize);
+
+        class Node {
+            constructor() {
+                this.dirIndex = Math.floor(Math.random() * 4);
+                this.dir = DIRS[this.dirIndex];
+                
+                // Spawn way off screen
+                const spawnDist = Math.max(width, height) * 0.8;
+                this.x = centerX + (this.dir.x * spawnDist);
+                this.y = centerY + (this.dir.y * spawnDist);
+                
+                this.radius = hitZoneRadius * 0.3;
+                this.active = true;
+                
+                // Nodes approach the center
+                this.targetX = centerX;
+                this.targetY = centerY;
+            }
+
+            update(speed) {
+                // Move towards center
+                const dx = this.targetX - this.x;
+                const dy = this.targetY - this.y;
+                const dist = Math.sqrt(dx * dx + dy * dy);
+                
+                if (dist > speed) {
+                    this.x += (dx / dist) * speed;
+                    this.y += (dy / dist) * speed;
+                } else {
+                    this.x = this.targetX;
+                    this.y = this.targetY;
+                }
+
+                // Check if it reached center without being hit (Miss)
+                if (dist < hitZoneRadius * 0.2 && this.active) {
+                    this.active = false;
+                    handleMiss();
+                }
+            }
+
+            draw(ctx) {
+                if (!this.active) return;
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+                ctx.fillStyle = COLORS.node;
+                
+                // Trail effect
+                ctx.shadowBlur = 15;
+                ctx.shadowColor = COLORS.node;
+                ctx.fill();
+                ctx.shadowBlur = 0; // Reset
+            }
+        }
+
+        class Particle {
+            constructor(x, y, color) {
+                this.x = x;
+                this.y = y;
+                this.color = color;
+                const angle = Math.random() * Math.PI * 2;
+                const velocity = Math.random() * 5 + 2;
+                this.vx = Math.cos(angle) * velocity;
+                this.vy = Math.sin(angle) * velocity;
+                this.life = 1.0;
+                this.decay = Math.random() * 0.02 + 0.02;
+                this.size = Math.random() * 4 + 2;
+            }
+            update() {
+                this.x += this.vx;
+                this.y += this.vy;
+                this.life -= this.decay;
+            }
+            draw(ctx) {
+                ctx.globalAlpha = Math.max(0, this.life);
+                ctx.fillStyle = this.color;
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.globalAlpha = 1.0;
+            }
+        }
+
+        class VisualRing {
+            constructor() {
+                this.radius = hitZoneRadius;
+                this.life = 1.0;
+            }
+            update() {
+                this.radius += 2;
+                this.life -= 0.05;
+            }
+            draw(ctx) {
+                ctx.globalAlpha = Math.max(0, this.life);
+                ctx.strokeStyle = COLORS.hit;
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.arc(centerX, centerY, this.radius, 0, Math.PI * 2);
+                ctx.stroke();
+                ctx.globalAlpha = 1.0;
+            }
+        }
+
+        // --- Core Mechanics & DDA ---
+
+        function handleInput(dirIndex) {
+            if (!isPlaying || isPaused) return;
+
+            let hit = false;
+            // Find closest active node in the given direction
+            let targetNode = null;
+            let minDist = Infinity;
+
+            for (let node of nodes) {
+                if (node.active && node.dirIndex === dirIndex) {
+                    const dist = Math.sqrt(Math.pow(node.x - centerX, 2) + Math.pow(node.y - centerY, 2));
+                    if (dist < minDist) {
+                        minDist = dist;
+                        targetNode = node;
+                    }
+                }
+            }
+
+            // Hit Detection Logic
+            // If the node is within the Hit Zone (ring + some tolerance)
+            const tolerance = hitZoneRadius * 1.5; 
+            
+            if (targetNode && minDist <= tolerance) {
+                // Successful Hit
+                hit = true;
+                targetNode.active = false;
+                handleHit(targetNode.x, targetNode.y);
+            } else {
+                // Pressed a button, but nothing was there to hit (Miss)
+                handleMiss();
+            }
+        }
+
+        function handleHit(x, y) {
+            consecutiveHits++;
+            flowScore += 10 + Math.floor(flowMultiplier * 10);
+            
+            // DDA: Increase flow multiplier slowly (caps at 1.0)
+            flowMultiplier = Math.min(1.0, flowMultiplier + 0.05);
+            
+            // DDA: Increase speed and spawn rate
+            currentSpeed = baseSpeed + (flowMultiplier * baseSpeed * 1.5);
+            spawnInterval = Math.max(600, 2000 - (flowMultiplier * 1400)); // Spawn faster
+            
+            // Visuals & Audio
+            createExplosion(x, y, COLORS.hit);
+            visualRings.push(new VisualRing());
+            audio.playHitSound(flowMultiplier);
+            audio.updateDrone(flowMultiplier);
+            
+            // Slight visual feedback on the canvas (screen flash)
+            ctx.fillStyle = 'rgba(6, 182, 212, 0.1)';
+            ctx.fillRect(0, 0, width, height);
+        }
+
+        function handleMiss() {
+            consecutiveHits = 0;
+            
+            // DDA: Harsh penalty to flow multiplier to simulate broken concentration, 
+            // but speed drops to make it easier to recover (prevent anxiety).
+            flowMultiplier = Math.max(0, flowMultiplier - 0.3);
+            currentSpeed = baseSpeed + (flowMultiplier * baseSpeed * 1.5);
+            spawnInterval = Math.max(600, 2000 - (flowMultiplier * 1400));
+            
+            // Visuals & Audio
+            createExplosion(centerX, centerY, COLORS.miss);
+            audio.playMissSound();
+            audio.updateDrone(flowMultiplier);
+
+            // Red flash
+            ctx.fillStyle = 'rgba(239, 68, 68, 0.2)';
+            ctx.fillRect(0, 0, width, height);
+            
+            // Screen shake effect setup
+            canvas.style.transform = `translate(${Math.random()*10-5}px, ${Math.random()*10-5}px)`;
+            setTimeout(() => { canvas.style.transform = 'translate(0,0)'; }, 50);
+        }
+
+        function createExplosion(x, y, color) {
+            for (let i = 0; i < 15; i++) {
+                particles.push(new Particle(x, y, color));
+            }
+        }
+
+        // --- Main Game Loop ---
+
+        function startGame() {
+            document.getElementById('uiLayer').classList.add('opacity-0', 'pointer-events-none');
+            
+            // Initialize Audio on first user interaction
+            if (!audio.ctx) audio.init();
+            else audio.resume();
+
+            resize(); // Ensure proper scaling
+            
+            nodes = [];
+            particles = [];
+            visualRings = [];
+            flowScore = 0;
+            flowMultiplier = 0;
+            consecutiveHits = 0;
+            spawnInterval = 2000;
+            currentSpeed = baseSpeed;
+            lastSpawnTime = performance.now();
+            
+            isPlaying = true;
+            isPaused = false;
+            
+            animationId = requestAnimationFrame(gameLoop);
+        }
+
+        function gameLoop(timestamp) {
+            if (!isPlaying || isPaused) return;
+
+            // 1. Draw Background (with trail effect to induce motion/hypofrontality)
+            // The alpha value dictates the trail length. Lower alpha = longer trails.
+            ctx.fillStyle = `rgba(5, 5, 5, 0.3)`; 
+            ctx.fillRect(0, 0, width, height);
+
+            // 2. Spawn Logic
+            if (timestamp - lastSpawnTime > spawnInterval) {
+                nodes.push(new Node());
+                lastSpawnTime = timestamp;
+            }
+
+            // 3. Draw Center Aura (Breathing/Pulsing based on flow)
+            const pulse = Math.sin(timestamp * 0.003) * (hitZoneRadius * 0.1 * flowMultiplier);
+            const currentAuraRadius = hitZoneRadius + pulse;
+            
+            ctx.beginPath();
+            ctx.arc(centerX, centerY, currentAuraRadius, 0, Math.PI * 2);
+            ctx.strokeStyle = `rgba(6, 182, 212, ${0.3 + (flowMultiplier * 0.5)})`;
+            ctx.lineWidth = 2 + (flowMultiplier * 3);
+            
+            // Flow Glow
+            ctx.shadowBlur = 20 * flowMultiplier;
+            ctx.shadowColor = COLORS.center;
+            ctx.stroke();
+            ctx.shadowBlur = 0;
+            
+            // Center point
+            ctx.beginPath();
+            ctx.arc(centerX, centerY, 5, 0, Math.PI * 2);
+            ctx.fillStyle = COLORS.center;
+            ctx.fill();
+
+            // 4. Update & Draw Visual Rings
+            for (let i = visualRings.length - 1; i >= 0; i--) {
+                let ring = visualRings[i];
+                ring.update();
+                ring.draw(ctx);
+                if (ring.life <= 0) visualRings.splice(i, 1);
+            }
+
+            // 5. Update & Draw Nodes
+            for (let i = nodes.length - 1; i >= 0; i--) {
+                let node = nodes[i];
+                node.update(currentSpeed);
+                node.draw(ctx);
+                
+                // Cleanup inactive nodes
+                if (!node.active && node.x === centerX && node.y === centerY) {
+                    nodes.splice(i, 1);
+                }
+            }
+
+            // 6. Update & Draw Particles
+            ctx.globalCompositeOperation = 'lighter'; // Neon effect
+            for (let i = particles.length - 1; i >= 0; i--) {
+                let p = particles[i];
+                p.update();
+                p.draw(ctx);
+                if (p.life <= 0) particles.splice(i, 1);
+            }
+            ctx.globalCompositeOperation = 'source-over'; // Reset
+
+            // Loop
+            animationId = requestAnimationFrame(gameLoop);
+        }
+
+        // --- Input Handling ---
+
+        // Keyboard
+        window.addEventListener('keydown', (e) => {
+            if (!isPlaying || isPaused) return;
+            switch(e.key) {
+                case 'ArrowUp': case 'w': case 'W': handleInput(0); break;
+                case 'ArrowRight': case 'd': case 'D': handleInput(1); break;
+                case 'ArrowDown': case 's': case 'S': handleInput(2); break;
+                case 'ArrowLeft': case 'a': case 'A': handleInput(3); break;
+            }
+        });
+
+        // Touch / Swipe Mechanics for Mobile
+        let touchStartX = 0;
+        let touchStartY = 0;
+
+        window.addEventListener('touchstart', (e) => {
+            if (!isPlaying) return;
+            if (isPaused) {
+                resumeGame();
+                return;
+            }
+            touchStartX = e.changedTouches[0].screenX;
+            touchStartY = e.changedTouches[0].screenY;
+        }, {passive: false});
+
+        window.addEventListener('touchend', (e) => {
+            if (!isPlaying || isPaused) return;
+            let touchEndX = e.changedTouches[0].screenX;
+            let touchEndY = e.changedTouches[0].screenY;
+            
+            handleSwipe(touchStartX, touchStartY, touchEndX, touchEndY);
+        }, {passive: false});
+
+        function handleSwipe(startX, startY, endX, endY) {
+            const dx = endX - startX;
+            const dy = endY - startY;
+            const absDx = Math.abs(dx);
+            const absDy = Math.abs(dy);
+
+            // Minimum swipe distance to register (prevents accidental taps)
+            if (Math.max(absDx, absDy) > 30) {
+                if (absDx > absDy) {
+                    // Horizontal swipe
+                    if (dx > 0) handleInput(1); // Right
+                    else handleInput(3);        // Left
+                } else {
+                    // Vertical swipe
+                    if (dy > 0) handleInput(2); // Down
+                    else handleInput(0);        // Up
+                }
+            } else {
+                // If it's just a tap and not a swipe, we treat it as a miss to enforce discipline
+                handleMiss(); 
+            }
+        }
+
+        // --- Focus Management (Pausing breaks flow, which is realistic) ---
+        
+        function pauseGame() {
+            if (!isPlaying || isPaused) return;
+            isPaused = true;
+            cancelAnimationFrame(animationId);
+            audio.suspend();
+            document.getElementById('pauseLayer').classList.remove('hidden');
+            document.getElementById('pauseLayer').classList.add('flex');
+            
+            // Severe flow penalty for breaking focus
+            flowMultiplier = Math.max(0, flowMultiplier - 0.5); 
+        }
+
+        function resumeGame() {
+            if (!isPlaying || !isPaused) return;
+            isPaused = false;
+            document.getElementById('pauseLayer').classList.add('hidden');
+            document.getElementById('pauseLayer').classList.remove('flex');
+            audio.resume();
+            lastSpawnTime = performance.now(); // Reset timer to prevent instant spawns
+            gameLoop(performance.now());
+        }
+
+        window.addEventListener('blur', pauseGame);
+        document.getElementById('pauseLayer').addEventListener('click', resumeGame);
+
+        // Start UI Event
+        document.getElementById('startBtn').addEventListener('click', startGame);
+
+        // Initial setup
+        resize();
+        
+        // Draw a static background initially
+        ctx.fillStyle = COLORS.bg;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    </script>
+</body>
+</html>
